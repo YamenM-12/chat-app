@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chat</title>
+<style>
+:root{
+  --bg:#eef2f5; --panel:#ffffff; --side:#1f3a4d; --side-text:#dbe7ef;
+  --text:#18242d; --muted:#6b7c88; --me:#1f7a8c; --me-text:#ffffff;
+  --them:#e3eaef; --line:#d5dee5; --focus:#f2a900;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f171d; --panel:#16222b; --side:#0b1218; --side-text:#c5d3dd;
+    --text:#e6eef3; --muted:#8a9ba7; --me:#2a95a9; --them:#22323d; --line:#26363f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f171d; --panel:#16222b; --side:#0b1218; --side-text:#c5d3dd;
+  --text:#e6eef3; --muted:#8a9ba7; --me:#2a95a9; --them:#22323d; --line:#26363f;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box}
+body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;font-size:16px}
+.app{display:flex;height:100%}
+aside{width:280px;background:var(--side);color:var(--side-text);display:flex;flex-direction:column}
+aside h1{font-size:1.15rem;margin:0;padding:18px 16px}
+.contacts{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+.contacts button{all:unset;box-sizing:border-box;width:100%;display:flex;gap:12px;align-items:center;
+  padding:12px 16px;cursor:pointer}
+.contacts button:hover,.contacts button[aria-current="true"]{background:rgba(255,255,255,.09)}
+.contacts button:focus-visible,.composer button:focus-visible,.composer input:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--me);color:#fff;
+  display:grid;place-items:center;font-weight:600;flex:none}
+.contacts small{display:block;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--panel)}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+header strong{display:block}
+header span{color:var(--muted);font-size:.85rem}
+#messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:70%;padding:9px 13px;border-radius:14px;line-height:1.4;word-wrap:break-word}
+.msg time{display:block;font-size:.7rem;opacity:.7;margin-top:3px}
+.msg.me{align-self:flex-end;background:var(--me);color:var(--me-text);border-bottom-right-radius:4px}
+.msg.them{align-self:flex-start;background:var(--them);border-bottom-left-radius:4px}
+.logout{margin-left:auto;padding:8px 14px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--text);font:inherit;cursor:pointer}
+.logout:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.empty{margin:auto;color:var(--muted);text-align:center}
+.composer{display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+.composer input{flex:1;padding:12px 14px;border:1px solid var(--line);border-radius:10px;
+  background:var(--bg);color:var(--text);font:inherit}
+.composer button{padding:0 20px;border:0;border-radius:10px;background:var(--me);color:#fff;font:inherit;cursor:pointer}
+@media (max-width:640px){
+  aside{width:76px}
+  aside h1,.contacts div:last-child{display:none}
+  .contacts button{justify-content:center;padding:12px 0}
+  .msg{max-width:88%}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>Messages</h1>
+    <ul class="contacts" id="contacts"></ul>
+  </aside>
+  <main>
+    <header>
+      <div class="avatar" id="chatAvatar"></div>
+      <div><strong id="chatName"></strong><span id="me"></span></div>
+      <button type="button" class="logout" id="logout">Log out</button>
+    </header>
+    <div id="messages" aria-live="polite"></div>
+    <form class="composer" id="composer" onsubmit="return false">
+      <input id="input" type="text" placeholder="Write a message" autocomplete="off" aria-label="Message">
+      <button type="button" id="send">Send</button>
+    </form>
+  </main>
+</div>
+
+<script>
+// Require sign-in: send visitors to the login page first.
+let user = null;
+try { user = sessionStorage.getItem("chatUser"); } catch(e){}
+if(!user) location.replace("login.html");
+
+// No server yet. Messages live in memory only.
+const chats = {
+  "Maya":  [{who:"them", text:"Hi! Is the new chat app ready?"}],
+  "Omar":  [{who:"them", text:"Send me the link when it's up."}],
+  "Team":  []
+};
+let current = "Maya";
+
+const $ = id => document.getElementById(id);
+const initial = n => n.charAt(0).toUpperCase();
+const now = () => new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+
+function renderContacts(){
+  $("contacts").innerHTML = "";
+  Object.keys(chats).forEach(name => {
+    const last = chats[name].at(-1);
+    const li = document.createElement("li");
+    li.innerHTML = `<button aria-current="${name===current}">
+      <div class="avatar">${initial(name)}</div>
+      <div><div>${name}</div><small>${last ? last.text : "No messages yet"}</small></div></button>`;
+    li.firstChild.onclick = () => { current = name; render(); };
+    $("contacts").appendChild(li);
+  });
+}
+
+function renderMessages(){
+  const box = $("messages");
+  box.innerHTML = "";
+  if(!chats[current].length){
+    box.innerHTML = '<p class="empty">No messages yet. Say hello below.</p>';
+    return;
+  }
+  chats[current].forEach(m => {
+    const d = document.createElement("div");
+    d.className = "msg " + m.who;
+    d.textContent = m.text;
+    const t = document.createElement("time");
+    t.textContent = m.time || "";
+    d.appendChild(t);
+    box.appendChild(d);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+function render(){
+  $("chatName").textContent = current;
+  $("chatAvatar").textContent = initial(current);
+  renderContacts();
+  renderMessages();
+}
+
+function send(){
+  const text = $("input").value.trim();
+  if(!text) return;
+  chats[current].push({who:"me", text, time:now()});
+  $("input").value = "";
+  render();
+}
+
+$("me").textContent = "Signed in as " + (user || "");
+$("logout").onclick = () => {
+  try { sessionStorage.removeItem("chatUser"); } catch(e){}
+  location.href = "login.html";
+};
+$("send").onclick = send;
+$("input").addEventListener("keydown", e => { if(e.key === "Enter") send(); });
+render();
+</script>
+</body>
+</html>
